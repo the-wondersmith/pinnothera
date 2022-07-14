@@ -1,0 +1,13 @@
+# Ignore everything
+*
+
+# EXCEPT the following (must be prepended with '!' to NOT be ignored)
+!src/
+!.cargo/
+!artifacts/
+!Cargo.lock
+!Cargo.toml
+!Cross.toml
+
+# However, don't include these files, if they exist
+**/.DS_Store

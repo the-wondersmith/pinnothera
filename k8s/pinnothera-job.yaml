@@ -1,0 +1,24 @@
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: configure-sns-sqs
+  labels:
+    app: pinnothera
+spec:
+  parallelism: 1
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      containers:
+        - name: pinnothera
+          image: docker.io/thewondersmith/pinnothera:latest
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              value: ""
+            - name: AWS_DEFAULT_REGION
+              value: ""
+            - name: AWS_SECRET_ACCESS_KEY
+              value: ""
+      restartPolicy: Never

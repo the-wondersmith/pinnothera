@@ -1,0 +1,14 @@
+# Ignore
+artifacts/**
+.cargo/config.toml
+Cross.toml
+k8s/**
+target/
+.idea/
+.run/
+
+# Except
+!artifacts/placeholder
+!k8s/cluster-role.yaml
+!k8s/role-binding.yaml
+!k8s/pinnothera-config.yaml
