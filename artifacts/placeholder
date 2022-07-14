@@ -1,0 +1,4 @@
+# This directory holds pre-compiled `pinnothera` binaries.
+# The binaries themselves are ignored by version control,
+# but the directory is not (to ensure it always exists as
+# expected by the precompiled build script.)
