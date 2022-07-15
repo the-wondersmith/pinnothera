@@ -1,16 +1,27 @@
 // Pinnothera - a dead simple Kubernetes-native SNS/SQS configurator
 
-use std::collections::BTreeMap;
+#![allow(dead_code, unused_imports)]
+
+// Standard Library
 use std::sync::Arc;
 
+// Third Party
 use aws_sdk_sns::Client as SNSClient;
 use aws_sdk_sqs::Client as SQSClient;
 use aws_types::SdkConfig as AWSConfig;
+use clap;
 use easy_error::{bail, Terminator};
-use k8s_openapi::api::core::v1::ConfigMap;
-use kube::{api::Api, Client as K8sClient};
 use once_cell::sync::OnceCell;
-use serde::Deserialize;
+
+// Crate-local
+use cli::CLIArgs;
+use types::{
+    EnvName, PinnConfig, SNSSubscriptionARN, SNSTopicARN, SQSQueueARN, SQSQueueConfig,
+    SQSQueueName, SQSQueueURL,
+};
+
+mod cli;
+mod types;
 
 // <editor-fold desc="// Global Statics ...">
 
@@ -19,91 +30,6 @@ static SQS_CLIENT: OnceCell<Arc<SQSClient>> = OnceCell::new();
 static CLUSTER_ENV: OnceCell<Arc<EnvName>> = OnceCell::new();
 
 // </editor-fold desc="// Global Statics ...">
-
-// <editor-fold desc="// Structs & Enums ...">
-
-#[derive(Clone, Debug, Default, Deserialize)]
-struct SQSQueueConfig {
-    topics: Vec<String>,
-}
-
-#[derive(Eq, Copy, Clone, Debug, PartialEq)]
-enum EnvName {
-    QA,
-    Dev,
-    Prod,
-    Local,
-    Unknown,
-}
-
-impl EnvName {
-    fn from<T: AsRef<str>>(value: Option<T>) -> EnvName {
-        if value.is_none() {
-            return EnvName::Unknown;
-        }
-
-        match value.unwrap().as_ref().to_uppercase().as_str() {
-            "L" | "LOCAL" => EnvName::Local,
-            "Q" | "QA" | "QE" => EnvName::QA,
-            "D" | "DEV" | "DEVELOPMENT" => EnvName::Dev,
-            "P" | "PROD" | "PRODUCTION" => EnvName::Prod,
-            _ => EnvName::Unknown,
-        }
-    }
-
-    fn is_local(&self) -> bool {
-        *self == EnvName::Local
-    }
-
-    fn is_unknown(&self) -> bool {
-        *self == EnvName::Unknown
-    }
-
-    fn for_queue(&self) -> &str {
-        match self {
-            EnvName::QA => "qa",
-            EnvName::Local => "local",
-            EnvName::Dev => "development",
-            EnvName::Prod => "production",
-            EnvName::Unknown => "unknown",
-        }
-    }
-
-    fn for_topic(&self) -> &str {
-        match self {
-            EnvName::QA => "qa",
-            EnvName::Dev => "dev",
-            EnvName::Prod => "prod",
-            EnvName::Local => "local",
-            EnvName::Unknown => "unknown",
-        }
-    }
-}
-
-impl Default for EnvName {
-    fn default() -> Self {
-        Self::Unknown
-    }
-}
-
-impl<T: AsRef<str>> From<T> for EnvName {
-    fn from(value: T) -> Self {
-        EnvName::from(Some(value))
-    }
-}
-
-// </editor-fold desc="// Structs & Enums ...">
-
-// <editor-fold desc="// Type Aliases ...">
-
-type SNSTopicARN = String;
-type SQSQueueARN = String;
-type SQSQueueURL = String;
-type SQSQueueName = String;
-type SNSSubscriptionARN = String;
-type PinnConfig = BTreeMap<SQSQueueName, SQSQueueConfig>;
-
-// </editor-fold desc="// Type Aliases ...">
 
 // <editor-fold desc="// SNS Topic Utilities ...">
 
@@ -120,7 +46,7 @@ async fn create_topic<T: AsRef<str>>(topic: T) -> Result<SNSTopicARN, Terminator
             topic.as_ref(),
             suffix
         );
-        format!("{}-{}", topic.as_ref(), suffix, )
+        format!("{}-{}", topic.as_ref(), suffix,)
     };
 
     let resp = SNS_CLIENT
@@ -138,7 +64,7 @@ async fn create_topic<T: AsRef<str>>(topic: T) -> Result<SNSTopicARN, Terminator
             bail!("")
         }
         Some(value) => {
-            println!("Topic \"{}\" exists with ARN: \"{}\"", &topic, value, );
+            println!("Topic \"{}\" exists with ARN: \"{}\"", &topic, value,);
             Ok(value.to_string())
         }
     }
@@ -162,7 +88,7 @@ async fn create_queue<T: AsRef<str>>(queue: T) -> Result<(SQSQueueURL, SQSQueueA
             queue.as_ref(),
             suffix
         );
-        format!("{}-{}", queue.as_ref(), suffix, )
+        format!("{}-{}", queue.as_ref(), suffix,)
     };
 
     let resp = SQS_CLIENT
@@ -301,85 +227,6 @@ async fn apply_queue_configuration<T: AsRef<str>>(
 
 // </editor-fold desc="// SNS->SQS Subscription Utilities ...">
 
-// <editor-fold desc="// Kubernetes API Utilities ...">
-
-async fn pinn_config_from_json(data: &String) -> Result<PinnConfig, Terminator> {
-    match serde_json::from_str::<PinnConfig>(data.as_str()) {
-        Ok(obj) => Ok(obj),
-        Err(error) => {
-            println!("Couldn't deserialize JSON data: {}", data);
-            Err(error.into())
-        }
-    }
-}
-
-async fn pinn_config_from_yaml(data: &String) -> Result<PinnConfig, Terminator> {
-    match serde_yaml::from_str::<PinnConfig>(data.as_str()) {
-        Ok(obj) => Ok(obj),
-        Err(error) => {
-            println!("Couldn't deserialize YAML data: {}", data);
-            Err(error.into())
-        }
-    }
-}
-
-async fn get_pinn_config() -> Result<(EnvName, PinnConfig), Terminator> {
-    // Infer and create a Kubernetes `Client` from the runtime environment
-    let client: K8sClient = K8sClient::try_default().await?;
-
-    // Read `ConfigMap`s in the configured namespace
-    // into the typed interface from k8s-openapi
-    let config_maps: Api<ConfigMap> = Api::default_namespaced(client);
-
-    // Use the typed interface to pull the namespace's
-    // pinnothera configuration (if it exists)
-    let pinn_confmap: ConfigMap = match config_maps.get_opt("sns-sqs-config").await? {
-        Some(obj) => obj,
-        None => {
-            println!("No pinnothera-recognized ConfigMap in current cluster namespace!");
-            return Ok((EnvName::Unknown, BTreeMap::new()));
-        }
-    };
-
-    // Pull out the ConfigMap's `annotations` element (if it exists)
-    let annotations: BTreeMap<String, String> = match pinn_confmap.metadata.annotations {
-        Some(obj) => obj,
-        None => BTreeMap::new(),
-    };
-
-    let env_name: EnvName = EnvName::from(annotations.get("app-env"));
-
-    // Pull out the ConfigMap's `data` element (if it exists)
-    let confs_map: BTreeMap<String, String> = match pinn_confmap.data {
-        Some(obj) => obj,
-        None => {
-            println!(
-                "The `sns-sqs-config` ConfigMap retrieved from the current cluster namespace has no `data` element!"
-            );
-            return Ok((EnvName::Unknown, BTreeMap::new()));
-        }
-    };
-
-    // Parse the data from the first recognized key and return it
-    if let Some(data) = confs_map.get("json") {
-        return match pinn_config_from_json(data).await {
-            Ok(config) => Ok((env_name, config)),
-            Err(error) => Err(error),
-        };
-    } else if let Some(data) = confs_map.get("yaml") {
-        return match pinn_config_from_yaml(data).await {
-            Ok(config) => Ok((env_name, config)),
-            Err(error) => Err(error),
-        };
-    };
-
-    println!("The `data` element in the `sns-sqs-config` ConfigMap retrieved from the current cluster namespace has no pinnothera-recognized keys!");
-
-    Ok((EnvName::Unknown, BTreeMap::new()))
-}
-
-// </editor-fold desc="// Kubernetes API Utilities ...">
-
 // <editor-fold desc="// AWS Configuration Utilities ...">
 
 async fn aws_client_configs_for_env() -> (aws_sdk_sns::config::Config, aws_sdk_sqs::config::Config)
@@ -414,40 +261,44 @@ async fn aws_client_configs_for_env() -> (aws_sdk_sns::config::Config, aws_sdk_s
 
 #[tokio::main]
 async fn main() -> Result<(), Terminator> {
-    // Get the SNS/SQS topic & queue configuration from the
-    // cluster (if it exists in the current namespace)
-    let (env_name, pinn_config) = get_pinn_config().await?;
+    let args = <CLIArgs as clap::Parser>::parse();
 
-    println!("Applying queue configuration: {:#?}", &pinn_config);
+    println!("{:#?}", args);
 
-    CLUSTER_ENV.set(Arc::new(env_name)).unwrap();
-
-    // Get a usable AWS configuration objects for the local environment
-    let (sns_config, sqs_config) = aws_client_configs_for_env().await;
-
-    // Use the inferred AWS config to create SNS and SQS clients
-    let sns_client: SNSClient = SNSClient::from_conf(sns_config);
-    let sqs_client: SQSClient = SQSClient::from_conf(sqs_config);
-
-    // Allow the created clients to be accessed globally safely via
-    // the `OnceCell`s created as part of pinnothera's initialization
-    SNS_CLIENT.set(Arc::new(sns_client)).unwrap();
-    SQS_CLIENT.set(Arc::new(sqs_client)).unwrap();
-
-    // Spawn async tasks to apply the parsed queue & topic configurations
-    let tasks: Vec<_> = pinn_config
-        .into_iter()
-        .map(|(queue, queue_config)| {
-            tokio::spawn(async move {
-                apply_queue_configuration(queue, queue_config)
-                    .await
-                    .unwrap()
-            })
-        })
-        .collect();
-
-    // Wait for all of the spawned tasks to finish
-    futures_util::future::join_all(tasks).await;
+    // // Get the SNS/SQS topic & queue configuration from the
+    // // cluster (if it exists in the current namespace)
+    // let (env_name, pinn_config) = PinnConfig::from_cluster().await?;
+    //
+    // println!("Applying queue configuration: {:#?}", &pinn_config);
+    //
+    // CLUSTER_ENV.set(Arc::new(env_name)).unwrap();
+    //
+    // // Get a usable AWS configuration objects for the local environment
+    // let (sns_config, sqs_config) = aws_client_configs_for_env().await;
+    //
+    // // Use the inferred AWS config to create SNS and SQS clients
+    // let sns_client: SNSClient = SNSClient::from_conf(sns_config);
+    // let sqs_client: SQSClient = SQSClient::from_conf(sqs_config);
+    //
+    // // Allow the created clients to be accessed globally safely via
+    // // the `OnceCell`s created as part of pinnothera's initialization
+    // SNS_CLIENT.set(Arc::new(sns_client)).unwrap();
+    // SQS_CLIENT.set(Arc::new(sqs_client)).unwrap();
+    //
+    // // Spawn async tasks to apply the parsed queue & topic configurations
+    // let tasks: Vec<_> = pinn_config
+    //     .into_iter()
+    //     .map(|(queue, queue_config)| {
+    //         tokio::spawn(async move {
+    //             apply_queue_configuration(queue, queue_config)
+    //                 .await
+    //                 .unwrap()
+    //         })
+    //     })
+    //     .collect();
+    //
+    // // Wait for all of the spawned tasks to finish
+    // futures_util::future::join_all(tasks).await;
 
     Ok(())
 }
