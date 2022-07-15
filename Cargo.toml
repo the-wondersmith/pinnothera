@@ -46,6 +46,7 @@ aws-sdk-sqs = "0.15.0"
 aws-smithy-http = "0.45.0"
 easy-error = { version = "*" }
 k8s-openapi = { version = ">=0.15", features = ["v1_24"] }
+clap = { version = ">=3.2", features = ["env", "derive"] }
 serde = { version = "*", default-features = false, features = ["derive"] }
 kube = { version = ">=0.73", default-features = false, features = ["client", "config", "rustls-tls"] }
 tokio = { version = ">=1", default-features = false, features = ["net", "macros", "rt-multi-thread"] }
