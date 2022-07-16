@@ -2,32 +2,35 @@
 
 #![allow(dead_code, unused_imports)]
 
-// Standard Library
+// Standard Library Imports
 use std::sync::Arc;
 
-// Third Party
+// Third Party Imports
 use aws_sdk_sns::Client as SNSClient;
 use aws_sdk_sqs::Client as SQSClient;
 use aws_types::SdkConfig as AWSConfig;
 use clap;
 use easy_error::{bail, Terminator};
+use log;
 use once_cell::sync::OnceCell;
 
-// Crate-local
-use cli::CLIArgs;
-use types::{
+// Project-Level Imports
+pub(crate) use cli::CLIArgs;
+pub(crate) use types::{
     EnvName, PinnConfig, SNSSubscriptionARN, SNSTopicARN, SQSQueueARN, SQSQueueConfig,
     SQSQueueName, SQSQueueURL,
 };
 
-mod cli;
-mod types;
+pub(crate) mod cli;
+pub(crate) mod types;
 
 // <editor-fold desc="// Global Statics ...">
 
-static SNS_CLIENT: OnceCell<Arc<SNSClient>> = OnceCell::new();
-static SQS_CLIENT: OnceCell<Arc<SQSClient>> = OnceCell::new();
-static CLUSTER_ENV: OnceCell<Arc<EnvName>> = OnceCell::new();
+pub(crate) static CLUSTER_ENV: OnceCell<Arc<EnvName>> = OnceCell::new();
+pub(crate) static SNS_CLIENT: OnceCell<Arc<SNSClient>> = OnceCell::new();
+pub(crate) static SQS_CLIENT: OnceCell<Arc<SQSClient>> = OnceCell::new();
+pub(crate) static PINN_CONFIG: OnceCell<Arc<PinnConfig>> = OnceCell::new();
+pub(crate) static CLI_ARGS: OnceCell<Arc<CLIArgs>> = OnceCell::new();
 
 // </editor-fold desc="// Global Statics ...">
 
@@ -193,7 +196,7 @@ async fn create_subscription<T: AsRef<str>>(
 
 async fn apply_queue_configuration<T: AsRef<str>>(
     queue: T,
-    config: SQSQueueConfig,
+    config: &'static SQSQueueConfig,
 ) -> Result<(), Terminator> {
     // Create a convenient place to accumulate
     // the task handles we're about to create
@@ -203,18 +206,22 @@ async fn apply_queue_configuration<T: AsRef<str>>(
         // If the supplied queue is actually the sentinel value
         // "unsubscribed", just create the configured topics but
         // don't attempt to subscribe them to anything
-        config.topics.into_iter().for_each(|topic| {
-            tasks.push(tokio::spawn(async { create_topic(topic).await.expect("") }));
+        config.topics.iter().for_each(|topic| {
+            tasks.push(tokio::spawn(async {
+                create_topic(topic.to_string()).await.expect("")
+            }));
         });
     } else {
         // Get the specified queue's URL and ARN
         let (_queue_url, queue_arn) = create_queue(queue).await?;
 
         // Create the queue's required subscriptions
-        config.topics.into_iter().for_each(|topic| {
+        config.topics.iter().for_each(|topic| {
             let task_arn = queue_arn.clone();
             tasks.push(tokio::spawn(async move {
-                create_subscription(task_arn, topic).await.expect("")
+                create_subscription(task_arn, topic.to_string())
+                    .await
+                    .expect("")
             }));
         })
     }
@@ -227,78 +234,51 @@ async fn apply_queue_configuration<T: AsRef<str>>(
 
 // </editor-fold desc="// SNS->SQS Subscription Utilities ...">
 
-// <editor-fold desc="// AWS Configuration Utilities ...">
-
-async fn aws_client_configs_for_env() -> (aws_sdk_sns::config::Config, aws_sdk_sqs::config::Config)
-{
-    // Infer and create an AWS `Config` from the current environment
-    let config: AWSConfig = aws_config::load_from_env().await;
-
-    let (mut sns_config, mut sqs_config) = (
-        aws_sdk_sns::config::Builder::from(&config),
-        aws_sdk_sqs::config::Builder::from(&config),
-    );
-
-    if CLUSTER_ENV.get().unwrap().is_local() {
-        sns_config.set_endpoint_resolver(Some(Arc::new(
-            aws_smithy_http::endpoint::Endpoint::immutable(http::Uri::from_static(
-                "http://aws.localstack",
-            )),
-        )));
-        sqs_config.set_endpoint_resolver(Some(Arc::new(
-            aws_smithy_http::endpoint::Endpoint::immutable(http::Uri::from_static(
-                "http://aws.localstack",
-            )),
-        )));
-    }
-
-    (sns_config.build(), sqs_config.build())
-}
-
-// </editor-fold desc="// AWS Configuration Utilities ...">
-
 // <editor-fold desc="// Main ...">
 
 #[tokio::main]
 async fn main() -> Result<(), Terminator> {
-    let args = <CLIArgs as clap::Parser>::parse();
+    // Parse and store any cli arguments that were supplied
+    let mut args: CLIArgs = <CLIArgs as clap::Parser>::parse();
 
-    println!("{:#?}", args);
+    // Get the SNS/SQS topic & queue configuration from the
+    // cluster (if it exists in the current namespace)
+    let (env_name, pinn_config) = args.pinn_config().await?;
 
-    // // Get the SNS/SQS topic & queue configuration from the
-    // // cluster (if it exists in the current namespace)
-    // let (env_name, pinn_config) = PinnConfig::from_cluster().await?;
-    //
-    // println!("Applying queue configuration: {:#?}", &pinn_config);
-    //
-    // CLUSTER_ENV.set(Arc::new(env_name)).unwrap();
-    //
-    // // Get a usable AWS configuration objects for the local environment
-    // let (sns_config, sqs_config) = aws_client_configs_for_env().await;
-    //
-    // // Use the inferred AWS config to create SNS and SQS clients
-    // let sns_client: SNSClient = SNSClient::from_conf(sns_config);
-    // let sqs_client: SQSClient = SQSClient::from_conf(sqs_config);
-    //
-    // // Allow the created clients to be accessed globally safely via
-    // // the `OnceCell`s created as part of pinnothera's initialization
-    // SNS_CLIENT.set(Arc::new(sns_client)).unwrap();
-    // SQS_CLIENT.set(Arc::new(sqs_client)).unwrap();
-    //
-    // // Spawn async tasks to apply the parsed queue & topic configurations
-    // let tasks: Vec<_> = pinn_config
-    //     .into_iter()
-    //     .map(|(queue, queue_config)| {
-    //         tokio::spawn(async move {
-    //             apply_queue_configuration(queue, queue_config)
-    //                 .await
-    //                 .unwrap()
-    //         })
-    //     })
-    //     .collect();
-    //
-    // // Wait for all of the spawned tasks to finish
-    // futures_util::future::join_all(tasks).await;
+    println!("Applying queue configuration: {:#?}", &pinn_config);
+
+    PINN_CONFIG.set(Arc::new(pinn_config)).unwrap();
+    CLUSTER_ENV.set(Arc::new(env_name)).unwrap();
+    CLI_ARGS.set(Arc::new(args)).unwrap();
+
+    // Get a usable AWS configuration objects for the local environment
+    let (sns_config, sqs_config) = CLI_ARGS.get().unwrap().aws_client_configs().await?;
+
+    // Use the inferred AWS config to create SNS and SQS clients
+    let sns_client: SNSClient = SNSClient::from_conf(sns_config);
+    let sqs_client: SQSClient = SQSClient::from_conf(sqs_config);
+
+    // Allow the created clients to be accessed globally safely via
+    // the `OnceCell`s created as part of pinnothera's initialization
+    SNS_CLIENT.set(Arc::new(sns_client)).unwrap();
+    SQS_CLIENT.set(Arc::new(sqs_client)).unwrap();
+
+    // Spawn async tasks to apply the parsed queue & topic configurations
+    let tasks: Vec<_> = PINN_CONFIG
+        .get()
+        .unwrap()
+        .iter()
+        .map(|(queue, queue_config)| {
+            tokio::spawn(async move {
+                apply_queue_configuration(queue, queue_config)
+                    .await
+                    .unwrap()
+            })
+        })
+        .collect();
+
+    // Wait for all of the spawned tasks to finish
+    futures_util::future::join_all(tasks).await;
 
     Ok(())
 }
