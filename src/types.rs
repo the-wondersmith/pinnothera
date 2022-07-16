@@ -1,12 +1,13 @@
 // Pinnothera's internal structs and enums
 
-// Standard Library
+// Standard Library Imports
 use std::collections::BTreeMap;
 
-// Third Party
+// Third Party Imports
 use easy_error::Terminator;
 use k8s_openapi::api::core::v1::ConfigMap;
-use kube::{api::Api, Client as K8sClient};
+use kube::{api::Api as K8sAPI, Client as K8sClient};
+use log;
 use serde::Deserialize;
 
 // <editor-fold desc="// Type Aliases ...">
@@ -112,25 +113,6 @@ impl std::ops::Deref for PinnConfig {
     }
 }
 
-// impl<T: AsRef<str>> TryFrom<T> for PinnConfig {
-//     type Error = Terminator;
-//
-//     fn try_from(data: T) -> Result<Self, Self::Error> {
-//         let data: &str = data.as_ref().trim();
-//
-//         match data.chars().next()? {
-//             // If the leading character is "{"
-//             // we've most likely got JSON data
-//             '{' => PinnConfig::from_json(data),
-//
-//             // Otherwise, assume the data is
-//             // either improperly formatted, or
-//             // actually is YAML data
-//             _ => PinnConfig::from_yaml(data),
-//         }
-//     }
-// }
-
 impl PinnConfig {
     pub fn for_unknown_env() -> Result<(EnvName, PinnConfig), Terminator> {
         Ok((EnvName::Unknown, Self::default()))
@@ -158,20 +140,39 @@ impl PinnConfig {
         }
     }
 
-    pub async fn from_cluster() -> Result<(EnvName, PinnConfig), Terminator> {
-        // Infer and create a Kubernetes `Client` from the runtime environment
-        let client: K8sClient = K8sClient::try_default().await?;
+    pub async fn from_cluster<T: AsRef<str>>(
+        client: K8sClient,
+        env_name: &Option<T>,
+        namespace: &Option<T>,
+        configmap_name: &T,
+    ) -> Result<(EnvName, PinnConfig), Terminator> {
+        // Ensure the name of the target configmap is usable
+        let configmap_name: &str = configmap_name.as_ref();
 
-        // Read `ConfigMap`s in the configured namespace
+        // Read `ConfigMap`s in the specified (or default) namespace
         // into the typed interface from k8s-openapi
-        let config_maps: Api<ConfigMap> = Api::default_namespaced(client);
+        let (config_maps, namespace): (K8sAPI<ConfigMap>, String) = if let Some(value) = &namespace
+        {
+            (
+                K8sAPI::namespaced(client, value.as_ref()),
+                format!("cluster namespace '{}'", value.as_ref()),
+            )
+        } else {
+            (
+                K8sAPI::default_namespaced(client),
+                "the current cluster namespace".to_string(),
+            )
+        };
 
         // Use the typed interface to pull the namespace's
         // pinnothera configuration (if it exists)
-        let pinn_confmap: ConfigMap = match config_maps.get_opt("sns-sqs-config").await? {
+        let pinn_confmap: ConfigMap = match config_maps.get_opt(configmap_name).await? {
             Some(obj) => obj,
             None => {
-                println!("No pinnothera-recognized ConfigMap in current cluster namespace!");
+                println!(
+                    "No `ConfigMap` named '{}' in {}!",
+                    configmap_name, &namespace
+                );
                 return Self::for_unknown_env();
             }
         };
@@ -182,14 +183,18 @@ impl PinnConfig {
             None => BTreeMap::new(),
         };
 
-        let env_name: EnvName = EnvName::from(annotations.get("app-env"));
+        let env_name: EnvName = match env_name {
+            Some(value) => EnvName::from(Some(value)),
+            None => EnvName::from(annotations.get("app-env")),
+        };
 
         // Pull out the ConfigMap's `data` element (if it exists)
         let confs_map: BTreeMap<String, String> = match pinn_confmap.data {
             Some(obj) => obj,
             None => {
                 println!(
-                    "The `sns-sqs-config` ConfigMap retrieved from the current cluster namespace has no `data` element!"
+                    "The '{}' `ConfigMap` retrieved from {} has no `data` element!",
+                    configmap_name, &namespace,
                 );
                 return Self::for_unknown_env();
             }
@@ -208,7 +213,7 @@ impl PinnConfig {
             };
         };
 
-        println!("The `data` element in the `sns-sqs-config` ConfigMap retrieved from the current cluster namespace has no pinnothera-recognized keys!");
+        println!("The `data` element in the '{}' ConfigMap retrieved from {} has no pinnothera-recognized keys!", configmap_name, &namespace, );
 
         Self::for_unknown_env()
     }
