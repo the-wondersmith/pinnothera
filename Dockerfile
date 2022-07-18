@@ -95,7 +95,7 @@ COPY ./artifacts/ /artifacts/precompiled
 
 RUN export TARGET_OS="$(uname -s | awk '{ print tolower($0) }')" \
     && export TARGET_ARCH="$(uname -m | sed 's#x86_64#amd64#g; s#aarch64#arm64#g')" \
-    && mv "$(pwd)/precompiled/pinnothera-${TARGET_OS}-${TARGET_ARCH}-${PINN_PROFILE}" "$(pwd)/pinnothera-bin" \
+    && mv "$(pwd)/precompiled/pinnothera-${TARGET_ARCH}-${TARGET_OS}-${PINN_PROFILE}" "$(pwd)/pinnothera-bin" \
     && rm -rf "$(pwd)/precompiled" \
     && chmod +x "$(pwd)/pinnothera-bin"
 
