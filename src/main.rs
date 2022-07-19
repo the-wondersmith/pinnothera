@@ -1,24 +1,20 @@
 // Pinnothera - a dead simple Kubernetes-native SNS/SQS configurator
 
-#![allow(dead_code, unused_imports)]
-
 // Standard Library Imports
+use std::process::ExitCode;
 use std::sync::Arc;
 
 // Third Party Imports
 use aws_sdk_sns::Client as SNSClient;
 use aws_sdk_sqs::Client as SQSClient;
-use aws_types::SdkConfig as AWSConfig;
 use clap;
 use easy_error::{bail, Terminator};
-use log;
 use once_cell::sync::OnceCell;
 
 // Project-Level Imports
 pub(crate) use cli::CLIArgs;
 pub(crate) use types::{
-    EnvName, PinnConfig, SNSSubscriptionARN, SNSTopicARN, SQSQueueARN, SQSQueueConfig,
-    SQSQueueName, SQSQueueURL,
+    EnvName, PinnConfig, SNSTopicARN, SQSQueueARN, SQSQueueConfig, SQSQueueURL,
 };
 
 pub(crate) mod cli;
@@ -52,17 +48,24 @@ async fn create_topic<T: AsRef<str>>(topic: T) -> Result<SNSTopicARN, Terminator
         format!("{}-{}", topic.as_ref(), suffix,)
     };
 
-    let resp = SNS_CLIENT
+    let resp = match SNS_CLIENT
         .get()
         .unwrap()
         .create_topic()
         .name(&topic)
         .send()
-        .await?;
+        .await
+    {
+        Ok(response) => response,
+        Err(error) => {
+            println!("Could not create topic due to error:\n----- Create '{}' Error -----\n{:#?}\n----- Create '{}' Error -----\n", &topic, &error, &topic, );
+            return Err(error.into());
+        }
+    };
 
     match resp.topic_arn() {
         None => {
-            println!("Creation of topic \"{}\" did not return an error, but also did not return an ARN as expected",
+            println!("Creation of topic \"{}\" did not return an error, but did not return an ARN as expected",
                      &topic);
             bail!("")
         }
@@ -77,7 +80,6 @@ async fn create_topic<T: AsRef<str>>(topic: T) -> Result<SNSTopicARN, Terminator
 
 // <editor-fold desc="// SQS Queue Utilities ...">
 
-#[allow(unreachable_code)]
 async fn create_queue<T: AsRef<str>>(queue: T) -> Result<(SQSQueueURL, SQSQueueARN), Terminator> {
     println!("Ensuring existence of queue: \"{}\"", queue.as_ref());
 
@@ -94,22 +96,29 @@ async fn create_queue<T: AsRef<str>>(queue: T) -> Result<(SQSQueueURL, SQSQueueA
         format!("{}-{}", queue.as_ref(), suffix,)
     };
 
-    let resp = SQS_CLIENT
+    let resp = match SQS_CLIENT
         .get()
         .unwrap()
         .create_queue()
         .queue_name(&queue)
         .send()
-        .await?;
+        .await
+    {
+        Ok(response) => response,
+        Err(error) => {
+            println!("Could not create queue due to error:\n----- Create '{}' Error -----\n{:#?}\n----- Create '{}' Error -----\n", &queue, &error, &queue, );
+            return Err(error.into());
+        }
+    };
 
     let queue_url = match resp.queue_url() {
         Some(value) => value.to_string(),
         None => {
             println!(
-                "Creation of queue \"{}\" did not return an error, but also did not return a URL as expected",
+                "Creation of queue \"{}\" did not return an error, but did not return a URL as expected",
                 queue
             );
-            return bail!("");
+            bail!("")
         }
     };
 
@@ -127,11 +136,11 @@ async fn create_queue<T: AsRef<str>>(queue: T) -> Result<(SQSQueueURL, SQSQueueA
     let queue_arn = match attributes.get(&aws_sdk_sqs::model::QueueAttributeName::QueueArn) {
         None => {
             println!(
-                "Creation of queue \"{}\" did return a url ({}), but also did not return an associated ARN as expected",
+                "Creation of queue \"{}\" did return a url ({}), but did not return an associated ARN as expected",
                 &queue,
                 &queue_url,
             );
-            return bail!("");
+            bail!("")
         }
         Some(value) => {
             println!(
@@ -149,47 +158,52 @@ async fn create_queue<T: AsRef<str>>(queue: T) -> Result<(SQSQueueURL, SQSQueueA
 
 // <editor-fold desc="// SNS->SQS Subscription Utilities ...">
 
-#[allow(unreachable_code)]
-async fn create_subscription<T: AsRef<str>>(
-    queue_arn: T,
-    topic: T,
-) -> Result<SNSSubscriptionARN, Terminator> {
-    let topic_arn = create_topic(topic.as_ref()).await?;
+async fn create_subscription<T: AsRef<str>>(queue_arn: T, topic: T) -> Result<u8, u8> {
+    let (queue_arn, topic): (&str, &str) = (queue_arn.as_ref(), topic.as_ref());
+    let topic_arn = match create_topic(topic).await {
+        Ok(arn) => arn,
+        Err(_) => {
+            return Err(1);
+        }
+    };
 
     println!(
         "Ensuring queue \"{}\" is subscribed to topic [name: \"{}\", arn: \"{}\"] ...",
-        topic.as_ref(),
-        &topic_arn,
-        queue_arn.as_ref(),
+        topic, &topic_arn, queue_arn,
     );
 
-    let subscription = SNS_CLIENT
+    let subscription = match SNS_CLIENT
         .get()
         .unwrap()
         .subscribe()
         .topic_arn(&topic_arn)
         .protocol("sqs")
-        .endpoint(queue_arn.as_ref())
+        .endpoint(queue_arn)
         .send()
-        .await?;
+        .await
+    {
+        Ok(response) => response,
+        Err(error) => {
+            println!("Could not ensure subscription of queue to topic due to error:\n----- Subscribe '{}' to '{}' Error -----\n{:#?}\n----- Subscribe '{}' to '{}' Error -----\n", queue_arn, topic, &error, queue_arn, topic, );
+            return Err(1);
+        }
+    };
 
     match subscription.subscription_arn {
         None => {
             println!(
                 "Subscription of topic \"{}\" to queue ARN \"{}\" did not return an error,\
-             but also did not return a subscription ARN either",
-                topic.as_ref(),
-                queue_arn.as_ref()
+             but did not return a subscription ARN either",
+                topic, queue_arn
             );
-            bail!("")
+            Err(1)
         }
         Some(arn) => {
             println!(
                 "Queue \"{}\" is subscribed to topic w/ ARN: \"{}\"",
-                queue_arn.as_ref(),
-                &arn
+                queue_arn, &arn
             );
-            Ok(arn)
+            Ok(0)
         }
     }
 }
@@ -197,7 +211,7 @@ async fn create_subscription<T: AsRef<str>>(
 async fn apply_queue_configuration<T: AsRef<str>>(
     queue: T,
     config: &'static SQSQueueConfig,
-) -> Result<(), Terminator> {
+) -> Result<u8, u8> {
     // Create a convenient place to accumulate
     // the task handles we're about to create
     let mut tasks: Vec<_> = Vec::new();
@@ -208,12 +222,20 @@ async fn apply_queue_configuration<T: AsRef<str>>(
         // don't attempt to subscribe them to anything
         config.topics.iter().for_each(|topic| {
             tasks.push(tokio::spawn(async {
-                create_topic(topic.to_string()).await.expect("")
+                match create_topic(topic.to_string()).await {
+                    Ok(_) => 0,
+                    Err(_) => 1,
+                }
             }));
         });
     } else {
         // Get the specified queue's URL and ARN
-        let (_queue_url, queue_arn) = create_queue(queue).await?;
+        let (_queue_url, queue_arn) = match create_queue(queue).await {
+            Ok((url, arn)) => (url, arn),
+            Err(_) => {
+                return Err(1);
+            }
+        };
 
         // Create the queue's required subscriptions
         config.topics.iter().for_each(|topic| {
@@ -221,15 +243,22 @@ async fn apply_queue_configuration<T: AsRef<str>>(
             tasks.push(tokio::spawn(async move {
                 create_subscription(task_arn, topic.to_string())
                     .await
-                    .expect("")
+                    .unwrap()
             }));
         })
     }
 
     // Await all of the created handles in parallel
-    futures_util::future::join_all(tasks).await;
+    let results: Vec<u8> = futures_util::future::join_all(tasks)
+        .await
+        .iter()
+        .map(|result| match result {
+            Ok(value) => *value,
+            Err(_) => 1 as u8,
+        })
+        .collect();
 
-    Ok(())
+    Ok(results.iter().sum::<u8>())
 }
 
 // </editor-fold desc="// SNS->SQS Subscription Utilities ...">
@@ -237,13 +266,22 @@ async fn apply_queue_configuration<T: AsRef<str>>(
 // <editor-fold desc="// Main ...">
 
 #[tokio::main]
-async fn main() -> Result<(), Terminator> {
+async fn main() -> ExitCode {
     // Parse and store any cli arguments that were supplied
     let mut args: CLIArgs = <CLIArgs as clap::Parser>::parse();
 
     // Get the SNS/SQS topic & queue configuration from the
     // cluster (if it exists in the current namespace)
-    let (env_name, pinn_config) = args.pinn_config().await?;
+    let (env_name, pinn_config) = match args.pinn_config().await {
+        Ok((name, config)) => (name, config),
+        Err(error) => {
+            println!(
+                "\n\n{:#?}\n\nCould not parse or acquire usable pinnothera configuration due to ^\n\n",
+                error
+            );
+            return ExitCode::from(2);
+        }
+    };
 
     println!("Applying queue configuration: {:#?}", &pinn_config);
 
@@ -252,7 +290,16 @@ async fn main() -> Result<(), Terminator> {
     CLI_ARGS.set(Arc::new(args)).unwrap();
 
     // Get a usable AWS configuration objects for the local environment
-    let (sns_config, sqs_config) = CLI_ARGS.get().unwrap().aws_client_configs().await?;
+    let (sns_config, sqs_config) = match CLI_ARGS.get().unwrap().aws_client_configs().await {
+        Ok((sns, sqs)) => (sns, sqs),
+        Err(error) => {
+            println!(
+                "\n\n{:#?}\n\nCould not create usable AWS configuration due to ^\n\n",
+                error
+            );
+            return ExitCode::from(3);
+        }
+    };
 
     // Use the inferred AWS config to create SNS and SQS clients
     let sns_client: SNSClient = SNSClient::from_conf(sns_config);
@@ -270,17 +317,25 @@ async fn main() -> Result<(), Terminator> {
         .iter()
         .map(|(queue, queue_config)| {
             tokio::spawn(async move {
-                apply_queue_configuration(queue, queue_config)
-                    .await
-                    .unwrap()
+                match apply_queue_configuration(queue, queue_config).await {
+                    Ok(value) => value,
+                    Err(value) => value,
+                }
             })
         })
         .collect();
 
     // Wait for all of the spawned tasks to finish
-    futures_util::future::join_all(tasks).await;
+    let results: Vec<u8> = futures_util::future::join_all(tasks)
+        .await
+        .iter()
+        .map(|result| match result {
+            Ok(value) => *value,
+            Err(_) => 1 as u8,
+        })
+        .collect();
 
-    Ok(())
+    ExitCode::from(results.iter().sum::<u8>())
 }
 
 // </editor-fold desc="// Main ...">
