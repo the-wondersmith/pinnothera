@@ -2,7 +2,7 @@
 
 use std::fmt::Formatter;
 // Standard Library Imports
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 // Third Party Imports
@@ -16,7 +16,7 @@ use aws_types::credentials::{
 use aws_types::{region::Region, SdkConfig as AWSConfig};
 use clap::Parser;
 use easy_error::{bail, Terminator};
-use kube::Client;
+use kube::Client as K8sClient;
 
 // Project-Level Imports
 use crate::{EnvName, PinnConfig, CLUSTER_ENV};
@@ -260,7 +260,10 @@ impl CLIArgs {
             ));
         }
 
-        let client = kube::Client::try_from(self.kube_config().await?)?;
+        let client = match self.kube_context {
+            None => K8sClient::try_default().await?,
+            Some(_) => K8sClient::try_from(self.kube_config().await?)?,
+        };
 
         PinnConfig::from_cluster(
             client,

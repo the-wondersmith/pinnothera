@@ -1122,7 +1122,6 @@ dependencies = [
  "itertools",
  "k8s-openapi",
  "kube",
- "log",
  "once_cell",
  "serde",
  "serde_json",

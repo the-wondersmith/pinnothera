@@ -4,10 +4,9 @@
 use std::collections::BTreeMap;
 
 // Third Party Imports
-use easy_error::Terminator;
+use easy_error::{bail, Terminator};
 use k8s_openapi::api::core::v1::ConfigMap;
 use kube::{api::Api as K8sAPI, Client as K8sClient};
-use log;
 use serde::Deserialize;
 
 // <editor-fold desc="// Type Aliases ...">
@@ -16,7 +15,6 @@ pub(crate) type SNSTopicARN = String;
 pub(crate) type SQSQueueARN = String;
 pub(crate) type SQSQueueURL = String;
 pub(crate) type SQSQueueName = String;
-pub(crate) type SNSSubscriptionARN = String;
 
 pub(crate) type ParsedPinnConfig = BTreeMap<SQSQueueName, SQSQueueConfig>;
 
@@ -114,6 +112,7 @@ impl std::ops::Deref for PinnConfig {
 }
 
 impl PinnConfig {
+    #[allow(dead_code)]
     pub fn for_unknown_env() -> Result<(EnvName, PinnConfig), Terminator> {
         Ok((EnvName::Unknown, Self::default()))
     }
@@ -173,7 +172,7 @@ impl PinnConfig {
                     "No `ConfigMap` named '{}' in {}!",
                     configmap_name, &namespace
                 );
-                return Self::for_unknown_env();
+                bail!("")
             }
         };
 
@@ -196,7 +195,7 @@ impl PinnConfig {
                     "The '{}' `ConfigMap` retrieved from {} has no `data` element!",
                     configmap_name, &namespace,
                 );
-                return Self::for_unknown_env();
+                bail!("")
             }
         };
 
@@ -215,7 +214,7 @@ impl PinnConfig {
 
         println!("The `data` element in the '{}' ConfigMap retrieved from {} has no pinnothera-recognized keys!", configmap_name, &namespace, );
 
-        Self::for_unknown_env()
+        bail!("")
     }
 }
 

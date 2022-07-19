@@ -29,7 +29,7 @@ strip = true  # Automatically strip symbols from the binary.
 opt-level = "z"  # Optimize for size.
 panic = "abort"  # Don't include the rustc's unwinding code in release builds
 codegen-units = 1  # Allow for maximum size reduction optimizations
-incremental = false
+incremental = true
 
 
 [dependencies]
@@ -51,4 +51,3 @@ serde = { version = "*", default-features = false, features = ["derive"] }
 kube = { version = ">=0.73", default-features = false, features = ["client", "config", "rustls-tls"] }
 tokio = { version = ">=1", default-features = false, features = ["fs", "net", "macros", "rt-multi-thread"] }
 futures-util = { version = "0.3.21", default-features = false, features = ["alloc", "async-await", "tokio-io"] }
-log = "0.4.17"
