@@ -46,17 +46,7 @@ impl EnvName {
         }
     }
 
-    pub fn for_queue(&self) -> &str {
-        match self {
-            EnvName::QA => "qa",
-            EnvName::Local => "local",
-            EnvName::Dev => "development",
-            EnvName::Prod => "production",
-            EnvName::Unknown => "unknown",
-        }
-    }
-
-    pub fn for_topic(&self) -> &str {
+    pub fn as_suffix(&self) -> &str {
         match self {
             EnvName::QA => "qa",
             EnvName::Dev => "dev",

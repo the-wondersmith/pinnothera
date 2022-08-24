@@ -38,7 +38,7 @@ async fn create_topic<T: AsRef<str>>(topic: T) -> Result<SNSTopicARN, Terminator
     let topic: String = if CLUSTER_ENV.get().unwrap().is_unknown() {
         topic.as_ref().to_string()
     } else {
-        let suffix = CLUSTER_ENV.get().unwrap().for_topic();
+        let suffix = CLUSTER_ENV.get().unwrap().as_suffix();
         println!(
             "Suffixing topic \"{}\" as \"{}-{}\" per in-cluster configuration...",
             topic.as_ref(),
@@ -86,7 +86,7 @@ async fn create_queue<T: AsRef<str>>(queue: T) -> Result<(SQSQueueURL, SQSQueueA
     let queue: String = if CLUSTER_ENV.get().unwrap().is_unknown() {
         queue.as_ref().to_string()
     } else {
-        let suffix = CLUSTER_ENV.get().unwrap().for_queue();
+        let suffix = CLUSTER_ENV.get().unwrap().as_suffix();
         println!(
             "Suffixing queue \"{}\" as \"{}-{}\" per in-cluster configuration...",
             queue.as_ref(),
