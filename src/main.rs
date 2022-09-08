@@ -7,6 +7,7 @@ use std::sync::Arc;
 // Third Party Imports
 use aws_sdk_sns::Client as SNSClient;
 use aws_sdk_sqs::Client as SQSClient;
+use aws_sdk_sqs::model::QueueAttributeName;
 use clap;
 use easy_error::{bail, Terminator};
 use once_cell::sync::OnceCell;
@@ -83,10 +84,11 @@ async fn create_topic<T: AsRef<str>>(topic: T) -> Result<SNSTopicARN, Terminator
 async fn create_queue<T: AsRef<str>>(queue: T) -> Result<(SQSQueueURL, SQSQueueARN), Terminator> {
     println!("Ensuring existence of queue: \"{}\"", queue.as_ref());
 
+    let suffix = CLUSTER_ENV.get().unwrap().as_suffix();
+
     let queue: String = if CLUSTER_ENV.get().unwrap().is_unknown() {
         queue.as_ref().to_string()
     } else {
-        let suffix = CLUSTER_ENV.get().unwrap().as_suffix();
         println!(
             "Suffixing queue \"{}\" as \"{}-{}\" per in-cluster configuration...",
             queue.as_ref(),
@@ -96,11 +98,47 @@ async fn create_queue<T: AsRef<str>>(queue: T) -> Result<(SQSQueueURL, SQSQueueA
         format!("{}-{}", queue.as_ref(), suffix,)
     };
 
+    let region = "us-east-2";     // TODO: pull this from env
+    let account = "037592358669"; // TODO: pull this from env
+
+    // Allow any SNS topic in the same region/account/suffix to send messages to this queue
+    let policy = format!(r#"{
+        "Version": "2008-10-17",
+        "Statement": [
+            {
+                "Action": [
+                    "sqs:SendMessage"
+                ],
+                "Effect": "Allow",
+                "Resource": "arn:aws:sqs:{region}:{account}:{queue}",
+                "Condition": {
+                    "ArnLike": {
+                        "aws:SourceArn": "arn:aws:sns:{region}:{account}:*-{suffix}"
+                    }
+                },
+                "Principal": {
+                    "AWS": [
+                        "sns.amazonaws.com"
+                    ]
+                }
+            },
+            {
+                "Effect": "Allow",
+                "Principal": {
+                    "AWS": "arn:aws:iam::{account}:root"
+                },
+                "Action": "SQS:*",
+                "Resource": "arn:aws:sqs:{region}:{account}:{queue}"
+            }
+        ]
+    }"#);
+
     let resp = match SQS_CLIENT
         .get()
         .unwrap()
         .create_queue()
         .queue_name(&queue)
+        .attributes(aws_sdk_sqs::model::QueueAttributeName::Policy, policy)
         .send()
         .await
     {
