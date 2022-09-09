@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 // Third Party Imports
 use aws_sdk_sns::Client as SNSClient;
-use aws_sdk_sqs::Client as SQSClient;
 use aws_sdk_sqs::model::QueueAttributeName;
+use aws_sdk_sqs::Client as SQSClient;
 use clap;
 use easy_error::{bail, Terminator};
 use once_cell::sync::OnceCell;
@@ -98,47 +98,60 @@ async fn create_queue<T: AsRef<str>>(queue: T) -> Result<(SQSQueueURL, SQSQueueA
         format!("{}-{}", queue.as_ref(), suffix,)
     };
 
-    let region = "us-east-2";     // TODO: pull this from env
-    let account = "037592358669"; // TODO: pull this from env
+    let cli_args = CLI_ARGS.get().unwrap();
 
-    // Allow any SNS topic in the same region/account/suffix to send messages to this queue
-    let policy = format!(r#"{
+    // If a usable region and account id were provided,
+    // set the queue policy to allow any SNS topic in
+    // the same region/account/suffix to send messages
+    // to this queue
+
+    let policy = if cli_args.aws_region.is_some() && cli_args.aws_account_id.is_some() {
+        let (region, account_id) = (
+            cli_args.aws_region.as_ref().unwrap(),
+            cli_args.aws_account_id.as_ref().unwrap(),
+        );
+        format!(
+            r#"{{
         "Version": "2008-10-17",
         "Statement": [
-            {
+            {{
                 "Action": [
                     "sqs:SendMessage"
                 ],
                 "Effect": "Allow",
-                "Resource": "arn:aws:sqs:{region}:{account}:{queue}",
-                "Condition": {
-                    "ArnLike": {
-                        "aws:SourceArn": "arn:aws:sns:{region}:{account}:*-{suffix}"
-                    }
-                },
-                "Principal": {
+                "Resource": "arn:aws:sqs:{{{region}}}:{{{account_id}}}:{{{queue}}}",
+                "Condition": {{
+                    "ArnLike": {{
+                        "aws:SourceArn": "arn:aws:sns:{{{region}}}:{{{account_id}}}:*-{{{suffix}}}"
+                    }}
+                }},
+                "Principal": {{
                     "AWS": [
                         "sns.amazonaws.com"
                     ]
-                }
-            },
-            {
+                }}
+            }},
+            {{
                 "Effect": "Allow",
-                "Principal": {
-                    "AWS": "arn:aws:iam::{account}:root"
-                },
+                "Principal": {{
+                    "AWS": "arn:aws:iam::{{{account_id}}}:root"
+                }},
                 "Action": "SQS:*",
-                "Resource": "arn:aws:sqs:{region}:{account}:{queue}"
-            }
+                "Resource": "arn:aws:sqs:{{{region}}}:{{{account_id}}}:{{{queue}}}"
+            }}
         ]
-    }"#);
+    }}"#
+        )
+    } else {
+        String::new()
+    };
 
     let resp = match SQS_CLIENT
         .get()
         .unwrap()
         .create_queue()
         .queue_name(&queue)
-        .attributes(aws_sdk_sqs::model::QueueAttributeName::Policy, policy)
+        .attributes(QueueAttributeName::Policy, policy)
         .send()
         .await
     {
@@ -165,13 +178,13 @@ async fn create_queue<T: AsRef<str>>(queue: T) -> Result<(SQSQueueURL, SQSQueueA
         .unwrap()
         .get_queue_attributes()
         .queue_url(queue_url.as_str())
-        .attribute_names(aws_sdk_sqs::model::QueueAttributeName::QueueArn)
+        .attribute_names(QueueAttributeName::QueueArn)
         .send()
         .await?
         .attributes
         .unwrap_or_default();
 
-    let queue_arn = match attributes.get(&aws_sdk_sqs::model::QueueAttributeName::QueueArn) {
+    let queue_arn = match attributes.get(&QueueAttributeName::QueueArn) {
         None => {
             println!(
                 "Creation of queue \"{}\" did return a url ({}), but did not return an associated ARN as expected",

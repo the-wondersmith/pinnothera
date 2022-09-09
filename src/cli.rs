@@ -15,7 +15,7 @@ use aws_types::credentials::{
 };
 use aws_types::{region::Region, SdkConfig as AWSConfig};
 use clap::Parser;
-use easy_error::{bail, Terminator};
+use easy_error::Terminator;
 use kube::Client as K8sClient;
 
 // Project-Level Imports
@@ -64,8 +64,8 @@ pub(crate) struct CLIArgs {
 
     /// The Role ARN that pinnothera should use
     /// to communicate with AWS SNS/SQS services
-    #[clap(long = "aws-role-arn", value_parser)]
-    pub(crate) aws_role_arn: Option<String>,
+    #[clap(long = "aws-account-id", value_parser)]
+    pub(crate) aws_account_id: Option<String>,
 
     /// The Secret Key ID that pinnothera should use
     /// to communicate with AWS SNS/SQS services
@@ -167,9 +167,6 @@ impl CLIArgs {
     pub async fn aws_client_configs(
         &'static self,
     ) -> Result<(SNSClientConfig, SQSClientConfig), Terminator> {
-        if self.aws_role_arn.is_some() {
-            bail!("Support for explicit AWS Role ARNs not yet implemented!")
-        }
         // Infer and create an AWS `Config` from the current environment
         let config: AWSConfig = aws_config::load_from_env().await;
 
