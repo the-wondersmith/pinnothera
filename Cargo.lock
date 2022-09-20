@@ -221,7 +221,7 @@ dependencies = [
     "regex",
     "ring",
     "time",
-    "tracing",
+ "tracing",
 ]
 
 [[package]]
