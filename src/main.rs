@@ -120,25 +120,23 @@ async fn create_queue<T: AsRef<str>>(queue: T) -> Result<(SQSQueueURL, SQSQueueA
                     "sqs:SendMessage"
                 ],
                 "Effect": "Allow",
-                "Resource": "arn:aws:sqs:{{{region}}}:{{{account_id}}}:{{{queue}}}",
+                "Resource": "arn:aws:sqs:{region}:{account_id}:{queue}",
                 "Condition": {{
                     "ArnLike": {{
-                        "aws:SourceArn": "arn:aws:sns:{{{region}}}:{{{account_id}}}:*-{{{suffix}}}"
+                        "aws:SourceArn": "arn:aws:sns:{region}:{account_id}:*-{suffix}"
                     }}
                 }},
                 "Principal": {{
-                    "AWS": [
-                        "sns.amazonaws.com"
-                    ]
+                    "Service": "sns.amazonaws.com"
                 }}
             }},
             {{
                 "Effect": "Allow",
                 "Principal": {{
-                    "AWS": "arn:aws:iam::{{{account_id}}}:root"
+                    "AWS": "arn:aws:iam::{account_id}:root"
                 }},
                 "Action": "SQS:*",
-                "Resource": "arn:aws:sqs:{{{region}}}:{{{account_id}}}:{{{queue}}}"
+                "Resource": "arn:aws:sqs:{region}:{account_id}:{queue}"
             }}
         ]
     }}"#
@@ -153,7 +151,7 @@ async fn create_queue<T: AsRef<str>>(queue: T) -> Result<(SQSQueueURL, SQSQueueA
         .borrow()
         .create_queue()
         .queue_name(&queue)
-        .attributes(QueueAttributeName::Policy, policy)
+        .attributes(QueueAttributeName::Policy, &policy)
         .send()
         .await
     {
