@@ -3,11 +3,14 @@
 use std::fmt::Formatter;
 // Standard Library Imports
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 
 // Third Party Imports
+use atomicell::AtomicCell;
 use aws_sdk_sns::config::Config as SNSClientConfig;
 use aws_sdk_sqs::config::Config as SQSClientConfig;
+use aws_sdk_sts::config::Config as STSClientConfig;
 use aws_types::credentials::{
     future::ProvideCredentials as ProvideAWSCredentials, Credentials as AWSCredentials,
     CredentialsError as AWSCredentialsError, ProvideCredentials as AWSCredentialProvider,
@@ -165,29 +168,32 @@ impl TryFrom<&CLIArgs> for CLICredentialProvider {
 impl CLIArgs {
     // <editor-fold desc="// AWS Configuration Utilities ...">
     pub async fn aws_client_configs(
-        &'static self,
-    ) -> Result<(SNSClientConfig, SQSClientConfig), Terminator> {
+        &self,
+    ) -> Result<(SNSClientConfig, SQSClientConfig, STSClientConfig), Terminator> {
         // Infer and create an AWS `Config` from the current environment
         let config: AWSConfig = aws_config::load_from_env().await;
 
-        let (sns_config, sqs_config) = (
+        let (sns_config, sqs_config, sts_config) = (
             aws_sdk_sns::config::Builder::from(&config),
             aws_sdk_sqs::config::Builder::from(&config),
+            aws_sdk_sts::config::Builder::from(&config),
         );
 
-        let (mut sns_config, mut sqs_config) = match &self.aws_region {
+        let (mut sns_config, mut sqs_config, mut sts_config) = match &self.aws_region {
             Some(region) => (
-                sns_config.region(Region::new(region)),
-                sqs_config.region(Region::new(region)),
+                sns_config.region(Region::new(region.to_string())),
+                sqs_config.region(Region::new(region.to_string())),
+                sts_config.region(Region::new(region.to_string())),
             ),
-            None => (sns_config, sqs_config),
+            None => (sns_config, sqs_config, sts_config),
         };
 
         let endpoint = if let Some(url) = &self.aws_endpoint {
             Some(url.as_str())
         } else if CLUSTER_ENV
             .get()
-            .unwrap_or(&Arc::new(EnvName::Unknown))
+            .unwrap_or(&AtomicCell::new(EnvName::Unknown))
+            .borrow()
             .is_local()
         {
             Some("http://aws.localstack")
@@ -196,11 +202,21 @@ impl CLIArgs {
         };
 
         if let Some(url) = endpoint {
+            let url = url.to_string();
             sns_config.set_endpoint_resolver(Some(Arc::new(
-                aws_smithy_http::endpoint::Endpoint::immutable(http::Uri::from_static(url)),
+                aws_smithy_http::endpoint::Endpoint::immutable(
+                    http::Uri::from_str(url.as_str()).unwrap(),
+                ),
             )));
             sqs_config.set_endpoint_resolver(Some(Arc::new(
-                aws_smithy_http::endpoint::Endpoint::immutable(http::Uri::from_static(url)),
+                aws_smithy_http::endpoint::Endpoint::immutable(
+                    http::Uri::from_str(url.as_str()).unwrap(),
+                ),
+            )));
+            sts_config.set_endpoint_resolver(Some(Arc::new(
+                aws_smithy_http::endpoint::Endpoint::immutable(
+                    http::Uri::from_str(url.as_str()).unwrap(),
+                ),
             )));
         }
 
@@ -211,9 +227,12 @@ impl CLIArgs {
             sqs_config.set_credentials_provider(Some(SharedAWSCredentialsProvider::new(
                 CLICredentialProvider::try_from(self)?,
             )));
+            sts_config.set_credentials_provider(Some(SharedAWSCredentialsProvider::new(
+                CLICredentialProvider::try_from(self)?,
+            )));
         }
 
-        Ok((sns_config.build(), sqs_config.build()))
+        Ok((sns_config.build(), sqs_config.build(), sts_config.build()))
     }
 
     // </editor-fold desc="// AWS Configuration Utilities ...">
