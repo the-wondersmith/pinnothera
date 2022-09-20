@@ -5,7 +5,7 @@ metadata:
   name: sns-sqs-config  # Required, must be exactly 'sns-sqs-config'
   namespace: default  # Required, must match project name
   annotations:
-    app-env: local  # Optional. If included, must be one of: "qa", "dev", "prod", "local"
+    app-env: local  # Optional. If included, must be one of: "qa", "dev", "prod", "test", "local"
 data:
   yaml-template: |  # YAML Format
     ---

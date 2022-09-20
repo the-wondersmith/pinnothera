@@ -1,7 +1,7 @@
 // Pinnothera's command line argument parsing components
 
-use std::fmt::Formatter;
 // Standard Library Imports
+use std::fmt::Formatter;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;

@@ -27,6 +27,7 @@ pub(crate) enum EnvName {
     QA,
     Dev,
     Prod,
+    Test,
     Local,
     Unknown,
 }
@@ -40,6 +41,7 @@ impl EnvName {
         match value.unwrap().as_ref().to_uppercase().as_str() {
             "L" | "LOCAL" => EnvName::Local,
             "Q" | "QA" | "QE" => EnvName::QA,
+            "T" | "TEST" | "TESTING" => EnvName::Test,
             "D" | "DEV" | "DEVELOPMENT" => EnvName::Dev,
             "P" | "PROD" | "PRODUCTION" => EnvName::Prod,
             _ => EnvName::Unknown,
@@ -51,6 +53,7 @@ impl EnvName {
             EnvName::QA => "qa",
             EnvName::Dev => "dev",
             EnvName::Prod => "prod",
+            EnvName::Test => "test",
             EnvName::Local => "local",
             EnvName::Unknown => "unknown",
         }
