@@ -116,9 +116,7 @@ async fn create_queue<T: AsRef<str>>(queue: T) -> Result<(SQSQueueURL, SQSQueueA
         "Version": "2008-10-17",
         "Statement": [
             {{
-                "Action": [
-                    "sqs:SendMessage"
-                ],
+                "Action": "sqs:SendMessage",
                 "Effect": "Allow",
                 "Resource": "arn:aws:sqs:{region}:{account_id}:{queue}",
                 "Condition": {{
