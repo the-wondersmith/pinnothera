@@ -6,9 +6,11 @@ use std::process::ExitCode;
 // Third Party Imports
 use atomicell::AtomicCell;
 use aws_sdk_sns::Client as SNSClient;
+use aws_sdk_sqs::error::CreateQueueError;
 use aws_sdk_sqs::model::QueueAttributeName;
 use aws_sdk_sqs::Client as SQSClient;
 use aws_sdk_sts::Client as STSClient;
+use aws_smithy_http::result::SdkError;
 use clap;
 use easy_error::{bail, Terminator};
 use once_cell::sync::OnceCell;
@@ -155,8 +157,7 @@ async fn create_queue<T: AsRef<str>>(queue: T) -> Result<(SQSQueueURL, SQSQueueA
     {
         Ok(response) => response,
         Err(error) => {
-            println!("Could not create queue due to error:\n----- Create '{}' Error -----\n{:#?}\n----- Create '{}' Error -----\n", &queue, &error, &queue, );
-            return Err(error.into());
+            return handle_create_queue_error(error, queue).await;
         }
     };
 
@@ -165,18 +166,25 @@ async fn create_queue<T: AsRef<str>>(queue: T) -> Result<(SQSQueueURL, SQSQueueA
         None => {
             println!(
                 "Creation of queue \"{}\" did not return an error, but did not return a URL as expected",
-                queue
+                &queue
             );
             bail!("")
         }
     };
 
+    get_queue_arn_from_url(queue, queue_url).await
+}
+
+async fn get_queue_arn_from_url(
+    queue: String,
+    url: String,
+) -> Result<(SQSQueueURL, SQSQueueARN), Terminator> {
     let attributes = SQS_CLIENT
         .get()
         .unwrap()
         .borrow()
         .get_queue_attributes()
-        .queue_url(queue_url.as_str())
+        .queue_url(&url)
         .attribute_names(QueueAttributeName::QueueArn)
         .send()
         .await?
@@ -186,22 +194,63 @@ async fn create_queue<T: AsRef<str>>(queue: T) -> Result<(SQSQueueURL, SQSQueueA
     let queue_arn = match attributes.get(&QueueAttributeName::QueueArn) {
         None => {
             println!(
-                "Creation of queue \"{}\" did return a url ({}), but did not return an associated ARN as expected",
-                &queue,
-                &queue_url,
+                "ARN retrieval attempt for queue URL \"{}\" did not return an error, but did not return an associated ARN as expected",
+                &url,
             );
             bail!("")
         }
         Some(value) => {
             println!(
                 "Queue \"{}\" exists with URL & ARN: [url: \"{}\", arn: \"{}\"]",
-                &queue, &queue_url, value
+                &queue, &url, value
             );
             value.to_string()
         }
     };
 
-    Ok((queue_url, queue_arn))
+    Ok((url, queue_arn))
+}
+
+async fn handle_create_queue_error(
+    error: SdkError<CreateQueueError>,
+    queue: String,
+) -> Result<(SQSQueueURL, SQSQueueARN), Terminator> {
+    if let SdkError::ServiceError { ref err, .. } = error {
+        if err.is_queue_name_exists() {
+            let resp = match SQS_CLIENT
+                .get()
+                .unwrap()
+                .borrow()
+                .get_queue_url()
+                .queue_name(&queue)
+                .send()
+                .await
+            {
+                Ok(response) => response,
+                Err(get_url_error) => {
+                    println!("Queue exists, but could not retrieve its url due to error:\n----- Get Queue URL '{}' Error -----\n{:#?}\n----- Get Queue URL '{}' Error -----\n", &queue, &get_url_error, &queue, );
+                    return Err(get_url_error.into());
+                }
+            };
+
+            let queue_url = match resp.queue_url() {
+                Some(value) => value.to_string(),
+                None => {
+                    println!(
+                        "URL retrieval attempt for queue \"{}\" did not return an error, but did not return a URL as expected",
+                        &queue
+                    );
+                    bail!("")
+                }
+            };
+
+            return get_queue_arn_from_url(queue, queue_url).await;
+        }
+    };
+
+    println!("Could not create queue due to error:\n----- Create '{}' Error -----\n{:#?}\n----- Create '{}' Error -----\n", &queue, &error, &queue, );
+
+    return Err(error.into());
 }
 
 // </editor-fold desc="// SQS Queue Utilities ...">
