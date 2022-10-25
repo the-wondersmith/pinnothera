@@ -40,7 +40,7 @@ impl EnvName {
         }
 
         match value.unwrap().as_ref().to_uppercase().as_str() {
-            "QE" => EnvName::QA,
+            "QE" => EnvName::QE,
             "Q" | "QA" => EnvName::QA,
             "L" | "LOCAL" => EnvName::Local,
             "T" | "TEST" | "TESTING" => EnvName::Test,
