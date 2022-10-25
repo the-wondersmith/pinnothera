@@ -25,6 +25,7 @@ pub(crate) type ParsedPinnConfig = BTreeMap<SQSQueueName, SQSQueueConfig>;
 #[derive(Eq, Copy, Clone, Debug, PartialEq)]
 pub(crate) enum EnvName {
     QA,
+    QE,
     Dev,
     Prod,
     Test,
@@ -39,8 +40,9 @@ impl EnvName {
         }
 
         match value.unwrap().as_ref().to_uppercase().as_str() {
+            "QE" => EnvName::QA,
+            "Q" | "QA" => EnvName::QA,
             "L" | "LOCAL" => EnvName::Local,
-            "Q" | "QA" | "QE" => EnvName::QA,
             "T" | "TEST" | "TESTING" => EnvName::Test,
             "D" | "DEV" | "DEVELOPMENT" => EnvName::Dev,
             "P" | "PROD" | "PRODUCTION" => EnvName::Prod,
@@ -51,6 +53,7 @@ impl EnvName {
     pub fn as_suffix(&self) -> &str {
         match self {
             EnvName::QA => "qa",
+            EnvName::QE => "qe",
             EnvName::Dev => "dev",
             EnvName::Prod => "prod",
             EnvName::Test => "test",
