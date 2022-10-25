@@ -30,6 +30,19 @@ use crate::{EnvName, PinnConfig, CLUSTER_ENV};
 #[derive(Parser, Debug)]
 #[clap(version, about, long_about = None)]
 pub(crate) struct CLIArgs {
+    // <editor-fold desc="// Behavioral Settings ...">
+    /// Force pinnothera to issue an exit code of 0 (success)
+    /// regardless of whether or not it actually way successful
+    #[clap(
+        short = 'f',
+        long = "force-success",
+        default_value_t = false,
+        value_parser
+    )]
+    pub(crate) force_success: bool,
+
+    // </editor-fold desc="// Behavioral Settings ...">
+
     // <editor-fold desc="// Kubernetes-related Settings ...">
     /// Name of the Kubernetes `Namespace` containing
     /// the SNS/SQS configuration pinnothera should apply

@@ -453,7 +453,10 @@ async fn main() -> ExitCode {
         })
         .collect();
 
-    ExitCode::from(results.iter().sum::<u8>())
+    match CLI_ARGS.get().unwrap().borrow().force_success {
+        true => ExitCode::from(0),
+        false => ExitCode::from(results.iter().sum::<u8>()),
+    }
 }
 
 // </editor-fold desc="// Main ...">
