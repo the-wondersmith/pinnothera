@@ -142,7 +142,16 @@ async fn create_queue<T: AsRef<str>>(queue: T) -> Result<(SQSQueueURL, SQSQueueA
     }}"#
             )
         }
-        _ => String::new(),
+        _ => {
+            let env = CLUSTER_ENV.get().unwrap().borrow();
+
+            if env.is_local() || env.is_unknown() {
+                String::new()
+            } else {
+                println!("ERROR: No usable AWS region or account id! Cannot create a valid access policy for queue - {}", &queue);
+                bail!("")
+            }
+        }
     };
 
     let resp = match SQS_CLIENT
