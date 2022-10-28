@@ -111,7 +111,7 @@ async fn create_queue<T: AsRef<str>>(queue: T) -> Result<(SQSQueueURL, SQSQueueA
         None => (None, None),
     };
 
-    let policy: String = match (aws_region, aws_account_id) {
+    let policy: String = match (&aws_region, &aws_account_id) {
         (Some(region), Some(account_id)) => {
             format!(
                 r#"{{
@@ -148,7 +148,7 @@ async fn create_queue<T: AsRef<str>>(queue: T) -> Result<(SQSQueueURL, SQSQueueA
             if env.is_local() || env.is_unknown() {
                 String::new()
             } else {
-                println!("ERROR: No usable AWS region or account id! Cannot create a valid access policy for queue - {}", &queue);
+                println!("ERROR: Cannot create a valid access policy for queue '{}' with values: [aws-region: {:?}, aws-account-id: {:?}]", &queue, &aws_region, &aws_account_id, );
                 bail!("")
             }
         }
