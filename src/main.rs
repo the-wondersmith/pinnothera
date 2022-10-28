@@ -462,10 +462,19 @@ async fn main() -> ExitCode {
         })
         .collect();
 
-    match CLI_ARGS.get().unwrap().borrow().force_success {
-        true => ExitCode::from(0),
-        false => ExitCode::from(results.iter().sum::<u8>()),
+    let exit_code = results.iter().sum::<u8>();
+
+    if exit_code >= 1 {
+        println!(
+            "\n\n^^^^^^^^\nThe above errors were encountered after running with arguments: {:#?}\n\n⌄⌄⌄⌄⌄⌄⌄⌄",
+            CLI_ARGS.get().unwrap().borrow()
+        );
     }
+
+    ExitCode::from(match CLI_ARGS.get().unwrap().borrow().force_success {
+        true => 0,
+        false => exit_code,
+    })
 }
 
 // </editor-fold desc="// Main ...">
