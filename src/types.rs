@@ -44,7 +44,7 @@ impl EnvName {
             "QE" => EnvName::QE,
             "Q" | "QA" => EnvName::QA,
             "L" | "LOCAL" => EnvName::Local,
-            "PREVIEW" => EnvName::Preview,
+            "P" | "PRE" | "PREVIEW" => EnvName::Preview,
             "T" | "TEST" | "TESTING" => EnvName::Test,
             "D" | "DEV" | "DEVELOPMENT" => EnvName::Dev,
             "P" | "PROD" | "PRODUCTION" => EnvName::Prod,
