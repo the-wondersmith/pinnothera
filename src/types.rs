@@ -30,6 +30,7 @@ pub(crate) enum EnvName {
     Prod,
     Test,
     Local,
+    Preview,
     Unknown,
 }
 
@@ -43,6 +44,7 @@ impl EnvName {
             "QE" => EnvName::QE,
             "Q" | "QA" => EnvName::QA,
             "L" | "LOCAL" => EnvName::Local,
+            "PREVIEW" => EnvName::Preview,
             "T" | "TEST" | "TESTING" => EnvName::Test,
             "D" | "DEV" | "DEVELOPMENT" => EnvName::Dev,
             "P" | "PROD" | "PRODUCTION" => EnvName::Prod,
@@ -58,6 +60,7 @@ impl EnvName {
             EnvName::Prod => "prod",
             EnvName::Test => "test",
             EnvName::Local => "local",
+            EnvName::Preview => "preview",
             EnvName::Unknown => "unknown",
         }
     }
